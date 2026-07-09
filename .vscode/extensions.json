@@ -1,0 +1,16 @@
+{
+	"recommendations": [
+		"ms-vscode.cpptools",		
+		"ms-vscode.cpptoos-extension-pack",
+		"ms-vscode.cmake-tools",						
+		"slevesque.shader-toy",		
+		"glencer.html-shader-toy",		
+		"earlphilhower.glsl-lang",		
+		"ms-vscode.hexeditor",			
+		"webfreak.debug",			
+		"vscjava.vscode-maven",			
+		"softwaredotcom.swdc-vscode",		
+		"kisstheroot.media-preview",		
+		"skellock.just-images"			
+	]
+}
