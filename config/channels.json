@@ -1,0 +1,19 @@
+{
+  "fallback_channel": {
+    "id": 0,
+    "name": "CH 00",
+    "directory": "./assets/channel0"
+  },
+  "channels": [
+    {
+      "id": 1,
+      "name": "CH 01 : Cartoons",
+      "directory": "./assets/test/cartoons"
+    },
+    {
+      "id": 2,
+      "name": "CH 02 : Horror",
+      "directory": "./assets/test/horror"
+    }
+  ]
+}
