@@ -4,96 +4,91 @@
 #include <iostream>
 #include <string>
 
-// Include our new configuration manager header
 #include "ConfigManager.hpp"
+#include "Scheduler.hpp"
+#include "Decoder.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 }
 
-// Helper function to update window title and print tuning diagnostic logs
-void DisplayActiveChannel(SDL_Window* window, const Channel& activeChannel) {
-    std::string windowTitle = "RetroVision | Active: " + activeChannel.name + 
-                               " [" + std::to_string(activeChannel.videoFiles.size()) + " Videos Loaded]";
+void DisplayActiveChannel(SDL_Window* window, const Channel& activeChannel, double seekTimestamp) {
+    std::string windowTitle = "RetroVision | Active: " + activeChannel.name;
     SDL_SetWindowTitle(window, windowTitle.c_str());
 
     std::cout << "\n========================================" << std::endl;
     std::cout << "[TUNING ENGINE] Context Switched!" << std::endl;
     std::cout << "  * Channel ID   : " << activeChannel.id << std::endl;
     std::cout << "  * Channel Name : " << activeChannel.name << std::endl;
-    std::cout << "  * File Vector  : " << activeChannel.videoFiles.size() << " media files mapped." << std::endl;
     std::cout << "  * Operational  : " << (activeChannel.isOperational ? "YES" : "NO (FALLBACK ACTIVE)") << std::endl;
     
     if (!activeChannel.videoFiles.empty()) {
         std::cout << "  * Primary Media: " << activeChannel.videoFiles[0] << std::endl;
     }
+    
+    std::cout << "  * Sync Seek T-Stamp: " << seekTimestamp << "s (Joining Broadcast in progress...)" << std::endl;
     std::cout << "========================================\n" << std::endl;
 }
 
-int main(int argc, char* argv[]) {
-    // 1. Diagnostics & System Checks
-    std::cout << "========================================" << std::endl;
-    std::cout << "RetroVision Engine Diagnostics Initialization" << std::endl;
-    std::cout << "FFmpeg AVCodec Version: " << avcodec_version() << std::endl;
-    std::cout << "FFmpeg AVFormat Version: " << avformat_version() << std::endl;
-    
-    nlohmann::json testJson = {{"engine_status", "operational"}};
-    std::cout << "JSON Engine State: " << testJson["engine_status"] << std::endl;
-    std::cout << "========================================" << std::endl;
+void TuneChannel(Decoder& decoder, Scheduler& scheduler, const Channel& channel, double duration) {
+    if (channel.videoFiles.empty()) return;
 
-    // 2. Configuration & Ingestion Ingestion (FR-004, FR-005)
-    // Functional Statement: Instantiate ConfigManager and load runtime configuration schema
+    std::string mediaPath = channel.videoFiles[0];
+    double seekTime = scheduler.CalculateSeekTimestamp(duration);
+
+    if (decoder.OpenMedia(mediaPath)) {
+        if (decoder.SeekToTime(seekTime)) {
+            std::cout << "[Decoder] Seek successful to " << seekTime << "s on keyframe." << std::endl;
+        } else {
+            std::cerr << "[Decoder Warning] Failed to seek to timestamp: " << seekTime << "s" << std::endl;
+        }
+    }
+}
+
+int main(int argc, char* argv[]) {
+    std::cout << "RetroVision Engine Boot Sequence Initiated..." << std::endl;
+
+    // 1. Instantiate Managers & Media Engine
     ConfigManager configManager;
     if (!configManager.LoadConfiguration("config/channels.json")) {
-        std::cerr << "[Warning] Default config failed to load. Operating in standalone fallback mode." << std::endl;
+        std::cerr << "[Warning] Default config failed. Operating in fallback mode." << std::endl;
     }
 
-    // Initialize default active channel state
+    Scheduler scheduler;
+    Decoder decoder;
+
     int currentChannelIndex = 1;
     Channel activeChannel = configManager.GetChannel(currentChannelIndex);
+    
+    // Simulate a 2-minute video file for math testing
+    double simulatedVideoDuration = 120.0; 
 
-    // 3. Initialize SDL3 Video Subsystem
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        std::cerr << "Engine Failure: SDL could not initialize! SDL_Error: " << SDL_GetError() << std::endl;
-        return 1;
-    }
-
-    // 4. Configure Hardware Core OpenGL Context (3.3 Core)
+    // 2. Initialize SDL3
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) return 1;
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 
-    // 5. Spawn the Window Client
     SDL_Window* window = SDL_CreateWindow(
-        "RetroVision Window Client - Standup Verification", 
-        1280, 720, 
-        SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
+        "RetroVision Window Client", 1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
     );
+    if (!window) return 1;
 
-    if (!window) {
-        std::cerr << "Engine Failure: Window creation failed! SDL_Error: " << SDL_GetError() << std::endl;
-        SDL_Quit();
-        return 1;
-    }
-
-    // 6. Instantiate Context and Bind to Window Client
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
-    if (!glContext) {
-        std::cerr << "Engine Failure: OpenGL context failed! SDL_Error: " << SDL_GetError() << std::endl;
-        SDL_DestroyWindow(window);
-        SDL_Quit();
-        return 1;
-    }
+    SDL_GL_SetSwapInterval(1);
 
-    SDL_GL_SetSwapInterval(1); // Force VSync alignment
+    // Initial Display & Tuning
+    double initialSeekTime = scheduler.CalculateSeekTimestamp(simulatedVideoDuration);
+    DisplayActiveChannel(window, activeChannel, initialSeekTime);
+    TuneChannel(decoder, scheduler, activeChannel, simulatedVideoDuration);
 
-    // Display initial startup channel on window title bar and terminal
-    DisplayActiveChannel(window, activeChannel);
-
-    // 7. Application Polling Loop
+    // 3. Application Polling Loop
     bool isRunning = true;
     SDL_Event event;
+
+    // Added: Allocate AVFrame container for decoding loop
+    AVFrame* avFrame = av_frame_alloc();
 
     while (isRunning) {
         while (SDL_PollEvent(&event)) {
@@ -102,42 +97,44 @@ int main(int argc, char* argv[]) {
             }
             if (event.type == SDL_EVENT_KEY_DOWN) {
                 SDL_Keycode key = event.key.key;
+                if (key == SDLK_ESCAPE) isRunning = false;
 
-                // Exit condition
-                if (key == SDLK_ESCAPE) {
-                    isRunning = false;
-                }
+                bool channelChanged = false;
 
-                // --- Sequential Surfing Logic (FR-006) ---
                 if (key == SDLK_UP) {
                     currentChannelIndex++;
-                    activeChannel = configManager.GetChannel(currentChannelIndex);
-                    DisplayActiveChannel(window, activeChannel);
-                } 
-                else if (key == SDLK_DOWN) {
+                    channelChanged = true;
+                } else if (key == SDLK_DOWN) {
                     currentChannelIndex--;
                     if (currentChannelIndex < 0) currentChannelIndex = 0;
-                    activeChannel = configManager.GetChannel(currentChannelIndex);
-                    DisplayActiveChannel(window, activeChannel);
+                    channelChanged = true;
+                } else if (key >= SDLK_0 && key <= SDLK_9) {
+                    currentChannelIndex = key - SDLK_0;
+                    channelChanged = true;
                 }
 
-                // --- Direct Numeric Tuning Logic (FR-007) ---
-                else if (key >= SDLK_0 && key <= SDLK_9) {
-                    currentChannelIndex = key - SDLK_0; // Convert keycode to integer channel ID
+                if (channelChanged) {
                     activeChannel = configManager.GetChannel(currentChannelIndex);
-                    DisplayActiveChannel(window, activeChannel);
+                    double currentSeekTime = scheduler.CalculateSeekTimestamp(simulatedVideoDuration);
+                    DisplayActiveChannel(window, activeChannel, currentSeekTime);
+                    TuneChannel(decoder, scheduler, activeChannel, simulatedVideoDuration);
                 }
             }
         }
 
-        // Color Pass: Broadcast static simulator baseline (Dark Grey)
+        // Added: Fetch decoded frames continuously if the decoder is active
+        if (decoder.IsOpen()) {
+            decoder.FetchFrame(avFrame);
+        }
+
         glClearColor(0.15f, 0.15f, 0.16f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-
         SDL_GL_SwapWindow(window);
     }
 
-    // Clean structural cleanup
+    // Added: Free frame container memory
+    av_frame_free(&avFrame);
+
     SDL_GL_DestroyContext(glContext);
     SDL_DestroyWindow(window);
     SDL_Quit();
