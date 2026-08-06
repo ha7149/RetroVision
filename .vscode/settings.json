@@ -30,5 +30,6 @@
     "terminal.integrated.defaultProfile.windows": "MSYS2 UCRT64",
     "cmake.configureSettings": {
         "CMAKE_TOOLCHAIN_FILE": "${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-    }
+    },
+    "editor.stickyScroll.scrollWithEditor": false
 }

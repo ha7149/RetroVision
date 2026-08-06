@@ -3,14 +3,17 @@
 #include <nlohmann/json.hpp>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include "ConfigManager.hpp"
 #include "Scheduler.hpp"
 #include "Decoder.hpp"
+#include "Renderer.hpp"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
 }
 
 void DisplayActiveChannel(SDL_Window* window, const Channel& activeChannel, double seekTimestamp) {
@@ -57,6 +60,7 @@ int main(int argc, char* argv[]) {
 
     Scheduler scheduler;
     Decoder decoder;
+    Renderer renderer;
 
     int currentChannelIndex = 1;
     Channel activeChannel = configManager.GetChannel(currentChannelIndex);
@@ -78,6 +82,11 @@ int main(int argc, char* argv[]) {
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
     SDL_GL_SetSwapInterval(1);
 
+    if (!renderer.Initialize(window)) {
+        std::cerr << "[Renderer Error] Failed to initialize Renderer." << std::endl;
+        return 1;
+    }
+
     // Initial Display & Tuning
     double initialSeekTime = scheduler.CalculateSeekTimestamp(simulatedVideoDuration);
     DisplayActiveChannel(window, activeChannel, initialSeekTime);
@@ -87,8 +96,17 @@ int main(int argc, char* argv[]) {
     bool isRunning = true;
     SDL_Event event;
 
-    // Added: Allocate AVFrame container for decoding loop
+    // Allocate AVFrames and SwsContext for color conversion (YUV -> RGBA)
     AVFrame* avFrame = av_frame_alloc();
+    AVFrame* rgbFrame = av_frame_alloc();
+    struct SwsContext* swsContext = nullptr;
+    int cachedWidth = 0;
+    int cachedHeight = 0;
+    int cachedFormat = -1;
+
+    // Timing and frame pacing variables (targeting ~30 FPS playback)
+    const Uint64 targetFrameDuration = 33; 
+    Uint64 lastFrameTime = SDL_GetTicks();
 
     while (isRunning) {
         while (SDL_PollEvent(&event)) {
@@ -122,18 +140,57 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Added: Fetch decoded frames continuously if the decoder is active
+        // Fetch decoded frames, convert format/color via sws_scale, and push to renderer
         if (decoder.IsOpen()) {
             decoder.FetchFrame(avFrame);
+            if (avFrame->width > 0 && avFrame->height > 0 && avFrame->data[0]) {
+                if (!swsContext || cachedWidth != avFrame->width || cachedHeight != avFrame->height || cachedFormat != avFrame->format) {
+                    if (swsContext) sws_free_context(&swsContext);
+                    cachedWidth = avFrame->width;
+                    cachedHeight = avFrame->height;
+                    cachedFormat = avFrame->format;
+
+                    swsContext = sws_getContext(
+                        cachedWidth, cachedHeight, (AVPixelFormat)cachedFormat,
+                        cachedWidth, cachedHeight, AV_PIX_FMT_RGBA,
+                        SWS_BILINEAR, nullptr, nullptr, nullptr
+                    );
+
+                    av_frame_unref(rgbFrame);
+                    rgbFrame->format = AV_PIX_FMT_RGBA;
+                    rgbFrame->width = cachedWidth;
+                    rgbFrame->height = cachedHeight;
+                    av_frame_get_buffer(rgbFrame, 32);
+                }
+
+                if (swsContext) {
+                    sws_scale(
+                        swsContext, 
+                        avFrame->data, avFrame->linesize, 0, cachedHeight,
+                        rgbFrame->data, rgbFrame->linesize
+                    );
+
+                    renderer.PrepareTexture(rgbFrame->width, rgbFrame->height);
+                    renderer.PushFrame(rgbFrame->data[0], rgbFrame->linesize[0]);
+                }
+            }
         }
 
-        glClearColor(0.15f, 0.15f, 0.16f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        SDL_GL_SwapWindow(window);
+        renderer.RenderPresent();
+
+        // Frame rate / timing control to prevent unthrottled frame blasting
+        Uint64 currentTime = SDL_GetTicks();
+        Uint64 elapsed = currentTime - lastFrameTime;
+        if (elapsed < targetFrameDuration) {
+            SDL_Delay(targetFrameDuration - elapsed);
+        }
+        lastFrameTime = SDL_GetTicks();
     }
 
-    // Added: Free frame container memory
+    // Cleanup memory
+    if (swsContext) sws_free_context(&swsContext);
     av_frame_free(&avFrame);
+    av_frame_free(&rgbFrame);
 
     SDL_GL_DestroyContext(glContext);
     SDL_DestroyWindow(window);
