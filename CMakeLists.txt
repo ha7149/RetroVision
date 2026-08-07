@@ -16,6 +16,7 @@ add_executable(RetroVision
 	src/ConfigManager.cpp
 	src/Scheduler.cpp
 	src/Decoder.cpp
+	src/Renderer.cpp
 )
 
 # 3. Explicitly include header directories
