@@ -62,6 +62,9 @@ int main(int argc, char* argv[]) {
     Decoder decoder;
     Renderer renderer;
 
+    //micah update
+    bool filterEnabled = false;
+
     int currentChannelIndex = 1;
     Channel activeChannel = configManager.GetChannel(currentChannelIndex);
     
@@ -70,22 +73,26 @@ int main(int argc, char* argv[]) {
 
     // 2. Initialize SDL3
     if (SDL_Init(SDL_INIT_VIDEO) < 0) return 1;
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    //SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 
     SDL_Window* window = SDL_CreateWindow(
-        "RetroVision Window Client", 1280, 720, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE
+        "RetroVision Window Client",
+        1280,
+        720,
+        SDL_WINDOW_RESIZABLE
     );
-    if (!window) return 1;
 
-    SDL_GLContext glContext = SDL_GL_CreateContext(window);
-    SDL_GL_SetSwapInterval(1);
+    if (!window) return 1;
 
     if (!renderer.Initialize(window)) {
         std::cerr << "[Renderer Error] Failed to initialize Renderer." << std::endl;
         return 1;
     }
+
+    // Enable CRT + VHS style filter
+    renderer.SetFilter(VideoFilter::None);
 
     // Initial Display & Tuning
     double initialSeekTime = scheduler.CalculateSeekTimestamp(simulatedVideoDuration);
@@ -116,6 +123,22 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_EVENT_KEY_DOWN) {
                 SDL_Keycode key = event.key.key;
                 if (key == SDLK_ESCAPE) isRunning = false;
+
+                if (key == SDLK_F)
+                {
+                    filterEnabled = !filterEnabled;
+
+                    if (filterEnabled)
+                    {
+                        renderer.SetFilter(VideoFilter::CRT);
+                        std::cout << "[Filter] ON\n";
+                    }
+                    else
+                    {
+                        renderer.SetFilter(VideoFilter::None);
+                        std::cout << "[Filter] OFF\n";
+                    }
+                }
 
                 bool channelChanged = false;
 
@@ -192,7 +215,6 @@ int main(int argc, char* argv[]) {
     av_frame_free(&avFrame);
     av_frame_free(&rgbFrame);
 
-    SDL_GL_DestroyContext(glContext);
     SDL_DestroyWindow(window);
     SDL_Quit();
 

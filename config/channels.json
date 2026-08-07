@@ -16,9 +16,9 @@
       "directory": "./assets/test/horror"
     },
     {
-  "id": 3,
-  "name": "CH 03 : Anime",
-  "directory": "./assets/test/anime"
-}
+      "id": 3,
+      "name": "CH 03 : Anime",
+      "directory": "./assets/test/anime"
+    }
   ]
 }
